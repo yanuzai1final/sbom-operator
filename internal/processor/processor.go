@@ -297,6 +297,18 @@ func HasJobImage() bool {
 }
 
 func (p *Processor) executeSyftScans(pods []libk8s.PodInfo, allImages []*liboci.RegistryImage) {
+	// Reset the per-pass image cache. imageMap's job is to avoid running syft
+	// and uploading an SBOM twice for the same image when multiple pods (or
+	// several containers in one pod) share it; its useful lifetime is a single
+	// pass. Without this reset, an upload that failed last tick (network hiccup,
+	// 401/413, syft resolve error) leaves a stale "true" entry that blocks
+	// retries on every subsequent tick until the operator restarts. Resetting
+	// here keeps the cache strictly per-pass and lets retries happen naturally
+	// the next time a pod without a matching annotation is observed. Successful
+	// images are already covered by the pod annotation check in scanPod, so
+	// this reset adds no extra work in the happy path.
+	p.imageMap = make(map[string]bool)
+
 	for _, pod := range pods {
 		p.scanPod(pod)
 	}
